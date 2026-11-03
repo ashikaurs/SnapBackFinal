@@ -1,6 +1,7 @@
 
 import logging
 import psutil
+import time
 from datetime import datetime, timezone
 
 logger = logging.getLogger("SNAP_BACK.PROCESS_MONITOR")
@@ -85,6 +86,59 @@ class ProcessMonitor:
 
         return running_processes
 
+    
+    def monitor_processes(self, interval=2):
+
+        previous_processes = {}
+
+        logger.info("Continuous process monitoring started.")
+
+        try:
+            while True:
+
+                processes = self.get_running_processes()
+
+                current_processes = {
+                    process["process_id"]: process
+                    for process in processes
+                }
+
+                # Identify newly started processes
+                new_pids = (
+                    current_processes.keys()
+                    - previous_processes.keys()
+                )
+
+                for pid in new_pids:
+                    process = current_processes[pid]
+
+                    logger.info(
+                        "New process detected: %s | PID: %s",
+                        process["process_name"],
+                        pid
+                    )
+
+                # Identify terminated processes
+                stopped_pids = (
+                    previous_processes.keys()
+                    - current_processes.keys()
+                )
+
+                for pid in stopped_pids:
+                    process = previous_processes[pid]
+
+                    logger.info(
+                        "Process terminated: %s | PID: %s",
+                        process["process_name"],
+                        pid
+                    )
+
+                previous_processes = current_processes
+
+                time.sleep(interval)
+
+        except KeyboardInterrupt:
+            logger.info("Process monitoring stopped by user.")
 
 
 if __name__ == "__main__":
@@ -96,11 +150,14 @@ if __name__ == "__main__":
 
     monitor = ProcessMonitor()
 
-    processes = monitor.get_running_processes()
+    monitor.monitor_processes(interval=2)
 
-    print(f"\nTotal running processes: {len(processes)}")
+    #processes = monitor.get_running_processes()
 
-    print("\nFirst 10 processes:")
 
-    for process in processes[:10]:
-        print(process)
+    # print(f"\nTotal running processes: {len(processes)}")
+
+    # print("\nFirst 10 processes:")
+
+    # for process in processes[:10]:
+    #     print(process)
