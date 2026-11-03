@@ -48,6 +48,45 @@ class ProcessMonitor:
         return None
 
 
+    
+    def get_running_processes(self):
+
+        running_processes = []
+
+        for process in psutil.process_iter(
+            ['pid', 'name', 'exe', 'ppid', 'create_time', 'status']
+        ):
+
+            try:
+                info = process.info
+
+                process_info = {
+                    "process_id": info["pid"],
+                    "process_name": info["name"],
+                    "executable_path": info["exe"],
+                    "parent_process_id": info["ppid"],
+                    "creation_time": datetime.fromtimestamp(
+                        info["create_time"],
+                        timezone.utc
+                    ).isoformat(timespec="milliseconds")
+                    if info["create_time"] else None,
+                    "status": info["status"]
+                }
+
+                running_processes.append(process_info)
+
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+
+        logger.info(
+            "Collected information for %d running processes.",
+            len(running_processes)
+        )
+
+        return running_processes
+
+
+
 if __name__ == "__main__":
 
     logging.basicConfig(
@@ -57,7 +96,11 @@ if __name__ == "__main__":
 
     monitor = ProcessMonitor()
 
-    current_pid = psutil.Process().pid
+    processes = monitor.get_running_processes()
 
-    print("\nCurrent Process Details:")
-    print(monitor.get_process_details(current_pid))
+    print(f"\nTotal running processes: {len(processes)}")
+
+    print("\nFirst 10 processes:")
+
+    for process in processes[:10]:
+        print(process)
