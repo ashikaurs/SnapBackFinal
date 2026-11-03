@@ -1,26 +1,129 @@
-Step 6. Create agent/monitoring/event_processor.py
-What is its responsibility?
-Currently, windows_monitor.py generates events like:
-{ "event_type": "MODIFIED", "file_path": "C:\\SNAP_BACK_TEST\\test.txt", "directory": "C:\\SNAP_BACK_TEST"}
+Event Processing and Integration
 
-This is raw event information.
+Implemented event_processor.py and integrated it with windows_monitor.py using a callback mechanism.
 
-Our event_processor.py will convert it into a standardized format that other modules can use.
+Workflow:
 
-It will:
+Windows Monitor continuously observes the specified directory.
 
-1. Validate the incoming event.
-2. Generate a unique event ID.
-3. Add a timestamp.
-4. Extract the filename and file extension.
-5. Prepare fields for future process identification.
-6. Return a structured event.
-   Important: It will not decide whether the activity is malicious. That belongs to our detection engine.
+When a file system event occurs, the monitor generates a raw event.
 
-It is hardcoded to test.txt. So even if you create god.txt, the processor will still display test.txt.
+The raw event is automatically forwarded to the Event Processor.
 
-Our current status:
+The Event Processor validates and standardizes the event.
 
-1. windows_monitor.py detects actual file events — tested successfully.
-2. event_processor.py converts a supplied event into a structured event — tested successfully.
-3. Next, we need to connect them. Every event detected by windows_monitor.py should automatically be passed to event_processor.py.
+A structured event is generated for further analysis.
+
+Structured event contains:
+
+Unique Event ID (UUID)
+
+Event type
+
+File path
+
+File name
+
+File extension
+
+Directory
+
+Timestamp (UTC)
+
+Process ID (currently unassigned)
+
+Event source
+
+Processing status
+
+Current Architecture
+
+SNAP_BACK
+|
+v
+Application Initialization
+|
+v
+Local Logging
+|
+v
+Windows File Monitor
+|
+| Detects file system activity
+v
+Raw File System Event
+|
+v
+Event Processor
+|
+v
+Structured Event
+|
+v
+Future: Detection Engine
+
+Current Development Status
+
+Component
+
+Status
+
+Application initialization
+
+Implemented
+
+Local logging
+
+Implemented
+
+Windows file monitoring
+
+Implemented and tested
+
+Event processing
+
+Implemented and tested
+
+Automatic event forwarding
+
+Implemented and tested
+
+Process identification
+
+Pending
+
+Ransomware detection
+
+Pending
+
+Threat assessment
+
+Pending
+
+Incident response
+
+Pending
+
+Backup and recovery integration
+
+Pending
+
+Dashboard
+
+Planned
+
+Testing
+
+The monitoring and event-processing pipeline was tested inside a Windows 11 Virtual Machine using a controlled test directory.
+
+File creation, modification, and deletion operations were performed to verify that:
+
+File system events were detected.
+
+Events were automatically forwarded to the Event Processor.
+
+Structured events were successfully generated.
+
+Application logs were recorded locally.
+
+Note: The current implementation detects file system activity. It does not yet classify activity as malicious or detect ransomware. These capabilities will be developed in subsequent phases.

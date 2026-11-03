@@ -95,10 +95,11 @@ CloseHandle.argtypes = [wintypes.HANDLE]
 
 class WindowsFileMonitor:
 
-    def __init__(self, directory, recursive=True):
+    def __init__(self, directory, recursive=True , event_callback=None):
 
         self.directory = Path(directory)
         self.recursive = recursive
+        self.event_callback = event_callback
         self.handle = None
 
         self.buffer_size = 64 * 1024
@@ -192,7 +193,12 @@ class WindowsFileMonitor:
             )
 
             # Event processing integration will be added later.
-            print(event)
+            if self.event_callback:
+              try:
+                  self.event_callback(event)
+              except Exception:
+                  logger.exception("Failed to process file event.")
+  
 
             if next_offset == 0:
                 break

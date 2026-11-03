@@ -5,6 +5,9 @@ SNAP_BACK - Main Application Entry Point
 
 import logging
 
+from monitoring.windows_monitor import WindowsFileMonitor
+from monitoring.event_processor import EventProcessor
+
 from config.settings import (
     APPLICATION_NAME,
     APPLICATION_VERSION,
@@ -50,6 +53,12 @@ logger = logging.getLogger("SNAP_BACK")
 
 def initialize_application():
 
+    validate_platform()
+
+    initialize_runtime_directories()
+
+    configure_logging()
+
     logger.info("=" * 55)
 
     logger.info(
@@ -58,11 +67,8 @@ def initialize_application():
         APPLICATION_VERSION
     )
 
-    validate_platform()
 
-    initialize_runtime_directories()
 
-    configure_logging()
 
     logger.info("Platform validation successful.")
 
@@ -81,7 +87,23 @@ def main():
 
         initialize_application()
 
+        processor = EventProcessor()
+
+        def handle_event(raw_event):
+            processed_event = processor.process_event(raw_event)
+
+            if processed_event:
+                print("\nProcessed Event:")
+                print(processed_event)
+
+        monitor = WindowsFileMonitor(
+            directory=r"C:\SNAP_BACK_TEST",
+            event_callback=handle_event
+        )
+
         logger.info("SNAP_BACK is ready.")
+        monitor.start()
+
 
         # Monitoring integration will be added here.
         # Detection and response integration will follow.
