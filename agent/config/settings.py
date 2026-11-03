@@ -22,8 +22,7 @@ AGENT_DIR = PROJECT_ROOT / "agent"
 # Runtime directories
 BACKUP_DIR = PROJECT_ROOT / "backups"
 DECOY_DIR = PROJECT_ROOT / "decoy_test"
-LOG_DIR = PROJECT_ROOT / "logs"
-
+LOG_DIR = Path.home() / "SNAP_BACK" / "logs"  # the logs are stored in vm only locally(for now) 
 
 # --------------------------------------------------
 # 2. MONITORING CONFIGURATION
