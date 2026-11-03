@@ -1,3 +1,7 @@
-Implemented the initial Process Monitor using Python's psutil library.
-It retrieves process details such as PID, process name, executable path, parent PID, creation time, and status.
-Currently tested by inspecting the Python process running the monitor.
+##CURRENT STATUS :
+
+Currently we are able to :
+
+1. detect file creation , modification , deletion
+2. collect information about running processes.
+3. detect newly started and terminated processes.
