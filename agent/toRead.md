@@ -96,6 +96,10 @@ Administrator privileges are required to:
 
 Therefore, we use **PowerShell as Administrator** to perform these operations.
 
+to run powershell as administrator :
+-> inside powershell only you write :
+Start-Process powershell -Verb RunAs -WorkingDirectory "$PWD"
+
 This does not mean our entire SNAP_BACK application must always run as Administrator. We use elevated privileges for the system-level setup and operations that require them.
 
 ## 5. Is Sysmon just present or actually installed?
