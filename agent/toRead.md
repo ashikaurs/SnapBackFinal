@@ -1,133 +1,127 @@
-# File Monitoring, Process Monitoring and Sysmon in SNAP_BACK
+##Example :
+Suppose ransomware starts encrypting files inside our monitored directory.
 
-## 1. What did we implement previously?
+1. ReadDirectoryChangesW reports that 100 files have been modified within 10 seconds.
+2. Our process monitor provides information about currently running processes.
+3. Sysmon provides additional process and file activity information.
+4. The correlation engine examines the timestamps, process identities, file paths and event sequences.
+5. The detection engine determines whether the activity is suspicious.
 
-We implemented file-system monitoring using the Windows API `ReadDirectoryChangesW`, accessed through Python's `ctypes` module.
+======================================================================= 2. One important correction: Sysmon Event IDs
+You were right to question why I was using only Events 1 and 11.
 
-It monitors a specified directory and detects the following activities:
+Those two are insufficient for our intended detection system.
 
-| Activity | What it detects                             |
-| -------- | ------------------------------------------- |
-| Created  | New files and directories                   |
-| Modified | Changes to existing files                   |
-| Deleted  | Deleted files and directories               |
-| Renamed  | Files or directories being renamed or moved |
+According to Microsoft's Sysmon documentation, these are the events we should consider:
+Event ID Information SNAP_BACK usage
+1 Process creation Identify process, parent, command line, GUID
+2 File creation time changed Detect suspicious timestamp manipulation
+3 Network connection Additional suspicious-process evidence
+5 Process termination Track process lifecycle
+7 Image/DLL loaded Additional process behaviour
+10 Process access Detect suspicious inter-process access
+11 File created or overwritten Correlate file creation/overwrite
+12–14 Registry changes Detect possible persistence
+22 DNS queries Additional network evidence
+25 Process tampering Detect process-hiding techniques
+26 File deletion detected Correlate deletion activity
 
-This is our general file-monitoring mechanism.
+Sources:
+Microsoft Learn+1
 
-**Important:** We are not using the Python Watchdog library in the current implementation.
+We should configure these events selectively, with appropriate filters to control log volume.
 
-## 2. What are we doing with Sysmon?
+But here is the critical distinction:
 
-Sysmon (System Monitor) is a Windows system monitoring tool.
+Sysmon does not provide a general event for every in-place file write or modification.
 
-It records selected system activities in Windows Event Logs. We can retrieve these events programmatically and use them as additional security telemetry.
+- Event 11 covers file creation and overwrite.
+- Event 26 covers deletion.
+- It does not tell us about every write operation that changes an existing file's contents.
+  Microsoft provides another mechanism for this: Windows Security Event ID 4663, which can record file access operations, including WriteData, along with the process ID and process name. It requires appropriate filesystem auditing policies and SACLs on the monitored directories.
+  Microsoft Learn+1
 
-We are currently configuring and testing two event types:
+Therefore, our final architecture should use:
 
-| Event ID | Activity                    |
-| -------- | --------------------------- |
-| 1        | Process creation            |
-| 11       | File creation and overwrite |
+1. ReadDirectoryChangesW for detecting file changes.
+2. Sysmon for process lifecycle and additional system activity.
+3. Windows Security auditing (4663) for process attribution of audited file access operations.
+4. psutil for supplementary process information.
+   This is much stronger than pretending Event ID 11 identifies every encryption operation.
 
-Event ID 1 provides information such as:
+========================================================================
 
-- Process ID (PID)
-- Process executable path
-- Command-line arguments
-- Parent process information
-- Executable hash
+## System Architecture Flow
 
-Event ID 11 provides information about file creation and overwrite activity, including the file path and process-related details.
+### Input Sources
 
-## 3. Why do we need Sysmon when we already have file monitoring?
+#### Source 1 – File activity
 
-Our existing file monitor tells us **what happened to a file**.
+- **Tool:** `ReadDirectoryChangesW`
+- **Actions:** Create | Modify | Delete | Rename
 
-However, it does not directly tell us which process caused that activity.
+#### Source 2 – Process activity
 
-For example:
+- **Tool:** `psutil`
+- **Attributes:** PID | Name | Executable path | Process lifecycle
 
-- Our file monitor detects that `important.txt` was modified.
-- Sysmon can provide additional process and file-event information.
-- We can use the available information to investigate which process performed the activity.
+#### Source 3 – System events
 
-This additional information is useful for identifying suspicious processes and correlating their activities.
+- **Tool:** `Sysmon`
+- **Events:** Process creation | Termination | File creation | Deletion | Other relevant events
 
-## 4. Why are we initially checking Event ID 11?
+#### Source 4 – File access attribution
 
-We are testing one specific Sysmon event type first to verify that our configuration and event collection work correctly.
+- **Tool:** `Windows Security Event 4663`
+- **Attributes:** Process ID | Process name | File path | Access rights
 
-File creation alone is not sufficient for ransomware detection.
+---
 
-Ransomware can:
+↓
 
-1. Open existing files.
-2. Read their contents.
-3. Encrypt and overwrite them.
-4. Create new encrypted files.
-5. Delete original files.
+### CORRELATION ENGINE
 
-Other Sysmon event types may also be useful:
+- Match file paths.
+- Match timestamps.
+- Associate PID with process lifetime and Sysmon Process GUID.
+- Group events by process.
+- Calculate file activity within time windows.
 
-| Event ID | Activity                     |
-| -------- | ---------------------------- |
-| 11       | File creation and overwrite  |
-| 23       | File deletion with archiving |
-| 26       | File deletion detected       |
+---
 
-These additional events are not currently enabled in our Sysmon configuration. We can evaluate and enable them as needed.
+↓
 
-## 5. How do the components work together?
+### RANSOMWARE DETECTION ENGINE
 
-| Component                             | Responsibility                                                                                    |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| Windows API (`ReadDirectoryChangesW`) | Monitors file-system changes in selected directories.                                             |
-| `psutil`                              | Collects running-process information and detects process starts and terminations through polling. |
-| Sysmon                                | Supplies additional Windows security event telemetry.                                             |
-| Event Processor                       | Converts raw file events into structured events.                                                  |
-| Future Event Correlation              | Attempts to associate file activity with process information using available telemetry.           |
-| Detection Engine                      | Analyses suspicious behaviour and assesses ransomware risk.                                       |
+- Rapid file modifications.
+- Large numbers of files affected.
+- Unusual deletion/creation patterns.
+- Suspicious process behaviour.
 
-### Planned architecture
+> **Status:** _Suspicious activity detected_
 
-```text
-Windows File Monitor
-(ReadDirectoryChangesW)
-        |
-        v
-File System Events
-        |
-        +----------------------+
-        |                      |
-        v                      v
-   Event Processor         Sysmon Logs
-        |                 (Event ID 1, 11...)
-        |                      |
-        +----------+-----------+
-                   |
-                   v
-          Event Correlation
-                   |
-                   v
-           Detection Engine
-                   |
-                   v
-       Risk Assessment and Response
-```
+---
 
-## 6. Current implementation status
+↓
 
-- Windows file monitoring using `ReadDirectoryChangesW`: Implemented and tested.
-- Event processing and structured event generation: Implemented and tested.
-- Process enumeration using `psutil`: Implemented and tested.
-- Continuous process monitoring using `psutil`: Implemented and tested.
-- Sysmon installation and service: Completed.
-- Sysmon configuration for Event IDs 1 and 11: Applied.
-- Sysmon event collection through Python: Not yet implemented.
-- Event correlation: Pending.
-- Ransomware detection and risk assessment: Pending.
+### Terminal alert
 
-**Important distinction:** Sysmon is currently configured independently. We have not yet integrated its event collection into SNAP_BACK's Python application.
+Display the suspected process, affected files, event count, and detection reason.
 
-Our next objective is to integrate Sysmon event collection and then correlate its telemetry with our existing file-monitoring and process-monitoring components.
+4. What we will implement
+   This is our final implementation target, not a prototype.
+
+I want to preserve your existing modules:
+
+- agent/monitoring/windows_monitor.py
+- agent/monitoring/process_monitor.py
+  We will add the Sysmon event collector and correlation/detection modules to the existing architecture.
+
+The implementation will:
+
+- Continuously collect events.
+- Maintain process information and event history.
+- Correlate file events with process identities.
+- Detect suspicious behaviour using configurable time windows and thresholds.
+- Print a detailed terminal alert when ransomware-like activity is detected.
+  We will also update your Sysmon configuration. Currently, it has Events 1 and 11 enabled, so we need to extend it.
