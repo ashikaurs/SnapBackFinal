@@ -5,6 +5,17 @@ import logging
 import os
 import random
 import shutil
+
+
+
+
+import threading
+
+from monitoring.windows_monitor import WindowsFileMonitor
+from monitoring.event_processor import EventProcessor
+
+
+
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -686,6 +697,91 @@ def folder_management_menu():
             print("\nInvalid choice. Try again.")
 
 
+
+
+
+# --------------------------------------------------
+# FILE MONITORING INTEGRATION
+# --------------------------------------------------
+
+def handle_file_event(raw_event, processor):
+    """
+    Receive raw filesystem events and pass them
+    through the event processor.
+    """
+
+    processed_event = processor.process_event(raw_event)
+
+    if processed_event is None:
+        return
+
+    logger.info(
+        "MONITORING EVENT | %s | %s",
+        processed_event["event_type"],
+        processed_event["file_path"]
+    )
+
+    print(
+        f"[{processed_event['event_type']}] "
+        f"{processed_event['file_path']}"
+    )
+
+
+def start_monitoring(folders):
+    """
+    Start a separate monitor thread for each
+    protected folder.
+    """
+
+    processor = EventProcessor()
+
+    monitor_threads = []
+
+    print("\n======================================")
+    print("       SNAP_BACK MONITORING")
+    print("======================================")
+
+    for folder in folders:
+
+        monitor = WindowsFileMonitor(
+            directory=folder,
+            recursive=True,
+            event_callback=lambda event, p=processor:
+                handle_file_event(event, p)
+        )
+
+        monitor_thread = threading.Thread(
+            target=monitor.start,
+            name=f"Monitor-{Path(folder).name}",
+            daemon=True
+        )
+
+        monitor_threads.append(monitor_thread)
+
+        monitor_thread.start()
+
+        logger.info(
+            "Monitoring thread started for: %s",
+            folder
+        )
+
+    print(f"\nMonitoring {len(monitor_threads)} protected folder(s).")
+    print("Press CTRL+C to stop SNAP_BACK.\n")
+
+    try:
+        while True:
+            for thread in monitor_threads:
+                thread.join(timeout=1)
+
+    except KeyboardInterrupt:
+        print("\nStopping SNAP_BACK monitoring...")
+        logger.info("Monitoring stopped by user.")
+
+
+
+
+
+
 # --------------------------------------------------
 # MAIN
 # --------------------------------------------------
@@ -712,6 +808,8 @@ def main():
             "Folder management completed. Active folders: %s",
             len(protected_folders)
         )
+
+        start_monitoring(protected_folders)
 
     except Exception as error:
         logger.exception("SNAP_BACK initialization failed.")
