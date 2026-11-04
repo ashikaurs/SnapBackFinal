@@ -1,181 +1,133 @@
-##Microsoft sysmon
-record process and selected file-system activity
+# File Monitoring, Process Monitoring and Sysmon in SNAP_BACK
 
-# Understanding Sysmon in SNAP_BACK
+## 1. What did we implement previously?
 
-## 1. What is Sysmon?
+We implemented file-system monitoring using the Windows API `ReadDirectoryChangesW`, accessed through Python's `ctypes` module.
 
-**Sysmon (System Monitor)** is a Windows system monitoring utility developed by Microsoft as part of the Sysinternals suite.
+It monitors a specified directory and detects the following activities:
 
-It monitors system activities and records detailed information about them in the Windows Event Log.
+| Activity | What it detects                             |
+| -------- | ------------------------------------------- |
+| Created  | New files and directories                   |
+| Modified | Changes to existing files                   |
+| Deleted  | Deleted files and directories               |
+| Renamed  | Files or directories being renamed or moved |
 
-It can capture activities such as:
+This is our general file-monitoring mechanism.
 
-- Process creation and termination.
-- Process execution details.
-- File creation and deletion (when configured).
-- Network connections.
-- Changes to certain system resources.
+**Important:** We are not using the Python Watchdog library in the current implementation.
 
-Sysmon helps security applications understand what is happening inside a Windows system.
+## 2. What are we doing with Sysmon?
 
-## 2. Why are we using Sysmon in SNAP_BACK?
+Sysmon (System Monitor) is a Windows system monitoring tool.
 
-Our existing Windows file monitor uses `ReadDirectoryChangesW` to detect file-system activities such as file creation, modification and deletion.
+It records selected system activities in Windows Event Logs. We can retrieve these events programmatically and use them as additional security telemetry.
 
-However, it has one important limitation: **it does not directly identify which process performed the file operation.**
+We are currently configuring and testing two event types:
 
-For example, our current monitor can report:
+| Event ID | Activity                    |
+| -------- | --------------------------- |
+| 1        | Process creation            |
+| 11       | File creation and overwrite |
 
-```text
-File: C:\SNAP_BACK_TEST\god.txt
-Event: MODIFIED
-```
+Event ID 1 provides information such as:
 
-But it cannot directly tell us whether the modification was performed by Notepad, Python or a potentially malicious application.
+- Process ID (PID)
+- Process executable path
+- Command-line arguments
+- Parent process information
+- Executable hash
 
-This is where Sysmon becomes useful.
+Event ID 11 provides information about file creation and overwrite activity, including the file path and process-related details.
 
-Sysmon can provide additional system telemetry, including process information and selected file-system events.
+## 3. Why do we need Sysmon when we already have file monitoring?
 
-We will use this information to:
+Our existing file monitor tells us **what happened to a file**.
 
-- Identify processes performing suspicious activities.
-- Correlate process information with file-system events.
-- Observe process creation and execution.
-- Support ransomware behaviour analysis.
-- Provide useful evidence to our detection engine.
+However, it does not directly tell us which process caused that activity.
 
-**Important:** Sysmon provides monitoring data. SNAP_BACK will implement the logic to correlate and analyse that data to identify potentially malicious behaviour.
+For example:
 
-## 3. Where is Sysmon?
+- Our file monitor detects that `important.txt` was modified.
+- Sysmon can provide additional process and file-event information.
+- We can use the available information to investigate which process performed the activity.
 
-Sysmon is a Windows system-level monitoring utility.
+This additional information is useful for identifying suspicious processes and correlating their activities.
 
-It records its events in the Windows Event Log.
+## 4. Why are we initially checking Event ID 11?
 
-Its events can be accessed through:
+We are testing one specific Sysmon event type first to verify that our configuration and event collection work correctly.
 
-```text
-Event Viewer
-    |
-    v
-Applications and Services Logs
-    |
-    v
-Microsoft
-    |
-    v
-Windows
-    |
-    v
-Sysmon
-    |
-    v
-Operational
-```
+File creation alone is not sufficient for ransomware detection.
 
-The corresponding PowerShell command to read Sysmon events is:
+Ransomware can:
 
-```powershell
-Get-WinEvent -LogName "Microsoft-Windows-Sysmon/Operational"
-```
+1. Open existing files.
+2. Read their contents.
+3. Encrypt and overwrite them.
+4. Create new encrypted files.
+5. Delete original files.
 
-Sysmon also runs as a Windows service after installation.
+Other Sysmon event types may also be useful:
 
-## 4. Why are we using PowerShell as Administrator?
+| Event ID | Activity                     |
+| -------- | ---------------------------- |
+| 11       | File creation and overwrite  |
+| 23       | File deletion with archiving |
+| 26       | File deletion detected       |
 
-Installing and configuring Sysmon involves system-level operations.
+These additional events are not currently enabled in our Sysmon configuration. We can evaluate and enable them as needed.
 
-Administrator privileges are required to:
+## 5. How do the components work together?
 
-- Enable the Windows optional feature.
-- Install the Sysmon service.
-- Configure system monitoring.
-- Access and manage certain system event logs.
+| Component                             | Responsibility                                                                                    |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Windows API (`ReadDirectoryChangesW`) | Monitors file-system changes in selected directories.                                             |
+| `psutil`                              | Collects running-process information and detects process starts and terminations through polling. |
+| Sysmon                                | Supplies additional Windows security event telemetry.                                             |
+| Event Processor                       | Converts raw file events into structured events.                                                  |
+| Future Event Correlation              | Attempts to associate file activity with process information using available telemetry.           |
+| Detection Engine                      | Analyses suspicious behaviour and assesses ransomware risk.                                       |
 
-Therefore, we use **PowerShell as Administrator** to perform these operations.
-
-to run powershell as administrator :
--> inside powershell only you write :
-Start-Process powershell -Verb RunAs -WorkingDirectory "$PWD"
-
-This does not mean our entire SNAP_BACK application must always run as Administrator. We use elevated privileges for the system-level setup and operations that require them.
-
-## 5. Is Sysmon just present or actually installed?
-
-Initially, Sysmon was available as a Windows optional feature, but it was disabled.
-
-We checked its status using:
-
-```powershell
-Get-WindowsOptionalFeature -Online -FeatureName Sysmon
-```
-
-Initially, the output showed:
+### Planned architecture
 
 ```text
-FeatureName : Sysmon
-State       : Disabled
+Windows File Monitor
+(ReadDirectoryChangesW)
+        |
+        v
+File System Events
+        |
+        +----------------------+
+        |                      |
+        v                      v
+   Event Processor         Sysmon Logs
+        |                 (Event ID 1, 11...)
+        |                      |
+        +----------+-----------+
+                   |
+                   v
+          Event Correlation
+                   |
+                   v
+           Detection Engine
+                   |
+                   v
+       Risk Assessment and Response
 ```
 
-We then enabled it using:
+## 6. Current implementation status
 
-```powershell
-Enable-WindowsOptionalFeature -Online -FeatureName Sysmon -All
-```
+- Windows file monitoring using `ReadDirectoryChangesW`: Implemented and tested.
+- Event processing and structured event generation: Implemented and tested.
+- Process enumeration using `psutil`: Implemented and tested.
+- Continuous process monitoring using `psutil`: Implemented and tested.
+- Sysmon installation and service: Completed.
+- Sysmon configuration for Event IDs 1 and 11: Applied.
+- Sysmon event collection through Python: Not yet implemented.
+- Event correlation: Pending.
+- Ransomware detection and risk assessment: Pending.
 
-The command completed successfully:
+**Important distinction:** Sysmon is currently configured independently. We have not yet integrated its event collection into SNAP_BACK's Python application.
 
-```text
-Online        : True
-RestartNeeded : False
-```
-
-However, **enabling the optional Windows feature and installing the Sysmon service are two separate steps.**
-
-The next installation command is:
-
-```powershell
-sysmon -i
-```
-
-This installs the Sysmon service with its default configuration. We must verify that the service is installed and running before considering the setup complete.
-
-## 6. How Sysmon fits into SNAP_BACK
-
-Our monitoring architecture will now have two sources of information:
-
-```text
-                 SNAP_BACK
-                     |
-          +----------+----------+
-          |                     |
-          v                     v
-   Windows Monitor          Sysmon
-          |                     |
-          v                     v
-   File System Events     System Telemetry
-          |                     |
-          +----------+----------+
-                     |
-                     v
-             Event Correlation
-                     |
-                     v
-              Detection Engine
-                     |
-                     v
-             Threat Assessment
-                     |
-                     v
-             Response and Recovery
-```
-
-The Windows Monitor provides direct file-system notifications, while Sysmon provides additional process and system activity information.
-
-SNAP_BACK will correlate these sources to build a better understanding of potentially suspicious file activity.
-
----
-
-**Current implementation status:** Windows file monitoring, event processing and continuous process enumeration are implemented. Sysmon's Windows feature has been enabled; service installation and event integration are the next steps.
+Our next objective is to integrate Sysmon event collection and then correlate its telemetry with our existing file-monitoring and process-monitoring components.
