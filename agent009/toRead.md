@@ -1,1 +1,0 @@
-One important architectural decision: Since ReadDirectoryChangesW uses blocking calls, we should run each folder monitor in a separate thread. Otherwise, the first folder's monitor will block monitoring of the remaining folders.
