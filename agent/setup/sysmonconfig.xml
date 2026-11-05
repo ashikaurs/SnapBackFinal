@@ -9,6 +9,7 @@
         <CreateRemoteThread onmatch="exclude" />
         <ProcessAccess onmatch="exclude" />
         <FileCreate onmatch="exclude" />
+        <FileCreateTime onmatch="exclude" />
         <RegistryEvent onmatch="exclude" />
         <FileCreateStreamHash onmatch="exclude" />
         <FileDeleteDetected onmatch="exclude" />
