@@ -13,7 +13,7 @@ import threading
 
 from monitoring.windows_monitor import WindowsFileMonitor
 from monitoring.event_processor import EventProcessor
-
+from monitoring.sysmon_monitor import SysmonMonitor
 
 
 from datetime import datetime, timezone
@@ -727,10 +727,41 @@ def handle_file_event(raw_event, processor):
     )
 
 
+
+def handle_sysmon_event(event):
+    """
+    Receive and log events collected by Sysmon.
+    Keep Sysmon events separate from filesystem events.
+    """
+
+    event_type = event["event_type"]
+    process_id = event.get("process_id")
+    process_image = event.get("process_image")
+    file_path = event.get("file_path")
+
+    logger.info(
+        "SYSMON EVENT | Type: %s | PID: %s | Process: %s | File: %s",
+        event_type,
+        process_id,
+        process_image,
+        file_path
+    )
+
+    print(
+        f"[SYSMON] {event_type} | "
+        f"PID: {process_id} | "
+        f"Process: {process_image or 'N/A'}"
+    )
+
+    if file_path:
+        print(f"         File: {file_path}")
+
+
+
 def start_monitoring(folders):
     """
-    Start a separate monitor thread for each
-    protected folder.
+    Start Windows filesystem monitoring for each
+    protected folder and one independent Sysmon monitor.
     """
 
     processor = EventProcessor()
@@ -740,6 +771,10 @@ def start_monitoring(folders):
     print("\n======================================")
     print("       SNAP_BACK MONITORING")
     print("======================================")
+
+    # ------------------------------------------
+    # 1. WINDOWS FILE MONITORS
+    # ------------------------------------------
 
     for folder in folders:
 
@@ -757,15 +792,40 @@ def start_monitoring(folders):
         )
 
         monitor_threads.append(monitor_thread)
-
         monitor_thread.start()
 
         logger.info(
-            "Monitoring thread started for: %s",
+            "Windows file monitoring started for: %s",
             folder
         )
 
-    print(f"\nMonitoring {len(monitor_threads)} protected folder(s).")
+    # ------------------------------------------
+    # 2. SYSMON MONITOR
+    # ------------------------------------------
+
+    sysmon_monitor = SysmonMonitor(
+        event_callback=handle_sysmon_event,
+        protected_folders=folders
+    )
+
+    sysmon_thread = threading.Thread(
+        target=sysmon_monitor.start,
+        name="Sysmon-Monitor",
+        daemon=True
+    )
+
+    monitor_threads.append(sysmon_thread)
+    sysmon_thread.start()
+
+    logger.info("Sysmon monitoring thread started.")
+
+    # ------------------------------------------
+    # 3. KEEP MONITORING ACTIVE
+    # ------------------------------------------
+
+    print(f"\nMonitoring {len(folders)} protected folder(s).")
+    print("Windows file monitoring: ACTIVE")
+    print("Sysmon monitoring: ACTIVE")
     print("Press CTRL+C to stop SNAP_BACK.\n")
 
     try:
@@ -774,10 +834,12 @@ def start_monitoring(folders):
                 thread.join(timeout=1)
 
     except KeyboardInterrupt:
+
         print("\nStopping SNAP_BACK monitoring...")
+
+        sysmon_monitor.stop()
+
         logger.info("Monitoring stopped by user.")
-
-
 
 
 
@@ -804,12 +866,9 @@ def main():
         # Connect your existing ReadDirectoryChangesW
         # monitoring entry point here.
 
-        logger.info(
-            "Folder management completed. Active folders: %s",
-            len(protected_folders)
-        )
 
         start_monitoring(protected_folders)
+        
 
     except Exception as error:
         logger.exception("SNAP_BACK initialization failed.")
