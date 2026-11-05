@@ -16,6 +16,10 @@ from monitoring.event_processor import EventProcessor
 from monitoring.sysmon_monitor import SysmonMonitor
 from monitoring.event_correlator import EventCorrelator
 from setup.windows_audit_setup import ensure_windows_auditing
+from monitoring.security_monitor import SecurityMonitor
+
+
+
 
 from datetime import datetime, timezone
 from pathlib import Path
@@ -783,6 +787,31 @@ def handle_sysmon_event(event, correlator):
         print_correlated_event(correlated)
 
 
+def handle_security_event(event):
+
+    logger.info(
+        "SECURITY EVENT | File: %s | PID: %s | "
+        "Process: %s | Access: %s",
+        event["file_path"],
+        event["process_id"],
+        event["process_image"],
+        event["access_types"]
+    )
+
+    print(
+        f"[SECURITY] FILE_ACCESS | "
+        f"PID: {event['process_id']} | "
+        f"Process: {event['process_image'] or 'Unknown'}"
+    )
+
+    print(
+        f"           File: {event['file_path']}"
+    )
+
+    print(
+        f"           Access: {event['access_types']}"
+    )
+
 def start_monitoring(folders):
 
     processor = EventProcessor()
@@ -847,6 +876,32 @@ def start_monitoring(folders):
 
     logger.info("Sysmon monitoring thread started.")
 
+
+
+        # ------------------------------------------
+    # 3. SECURITY MONITOR
+    # ------------------------------------------
+
+    security_monitor = SecurityMonitor(
+        event_callback=handle_security_event,
+        protected_folders=folders,
+        poll_interval=1
+    )
+
+    security_thread = threading.Thread(
+        target=security_monitor.start,
+        name="Security-Monitor",
+        daemon=True
+    )
+
+    monitor_threads.append(security_thread)
+    security_thread.start()
+
+    logger.info("Security monitoring thread started.")
+
+
+
+
     # ------------------------------------------
     # 3. KEEP MONITORING ACTIVE
     # ------------------------------------------
@@ -854,6 +909,7 @@ def start_monitoring(folders):
     print(f"\nMonitoring {len(folders)} protected folder(s).")
     print("Windows file monitoring: ACTIVE")
     print("Sysmon monitoring: ACTIVE")
+    print("Security auditing: ACTIVE")
     print("Event correlation: ACTIVE")
     print("Press CTRL+C to stop SNAP_BACK.\n")
 
@@ -869,6 +925,7 @@ def start_monitoring(folders):
         print("\nStopping SNAP_BACK monitoring...")
 
         sysmon_monitor.stop()
+        security_monitor.stop()
 
         logger.info("Monitoring stopped by user.")
 
@@ -886,6 +943,9 @@ def main():
         if protected_folders is None:
             return
 
+        # Configure Windows auditing for all registered protected folders.
+        ensure_windows_auditing(protected_folders)
+  
         print("\n======================================")
         print("SNAP_BACK folder setup completed.")
         print(f"Protected folders: {len(protected_folders)}")
