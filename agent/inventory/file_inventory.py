@@ -2,6 +2,7 @@
 import os
 import json
 import hashlib
+import math
 import logging
 
 from pathlib import Path
@@ -43,6 +44,37 @@ class FileInventory:
             )
             return None
 
+    def calculate_entropy(self, file_path, sample_bytes=1024 * 1024):
+        """Calculate Shannon entropy (bits per byte) from the first 1 MiB."""
+        try:
+            with open(file_path, "rb") as file:
+                data = file.read(sample_bytes)
+
+            if not data:
+                return 0.0
+
+            counts = [0] * 256
+            for byte in data:
+                counts[byte] += 1
+
+            length = len(data)
+            entropy = 0.0
+
+            for count in counts:
+                if count:
+                    probability = count / length
+                    entropy -= probability * math.log2(probability)
+
+            return round(entropy, 4)
+
+        except OSError as error:
+            logger.warning(
+                "Could not calculate entropy for %s: %s",
+                file_path,
+                error
+            )
+            return None
+
     def get_file_metadata(self, file_path):
         path = Path(file_path)
 
@@ -63,6 +95,7 @@ class FileInventory:
                     timezone.utc
                 ).isoformat(),
                 "sha256": self.calculate_hash(path),
+                "entropy": self.calculate_entropy(path),
                 "last_scanned": datetime.now(
                     timezone.utc
                 ).isoformat()

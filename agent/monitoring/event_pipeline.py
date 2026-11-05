@@ -211,6 +211,14 @@ class EventPipeline:
 
             file_path = event.get("file_path")
 
+            # A newly created directory may already exist by the time
+            # ReadDirectoryChangesW reports it. Remember and ignore it.
+            if event.get("event_type") == "CREATED" and file_path and os.path.isdir(file_path):
+                self.known_directories.add(
+                    os.path.normcase(os.path.abspath(file_path))
+                )
+                return
+
             # Ignore directory events.
             if self.is_directory_path(file_path):
 
@@ -411,6 +419,7 @@ class EventPipeline:
             ],
             "correlation": {
                 "matched": True,
+                "pipeline_event_id": correlated.get("pipeline_event_id"),
                 "file_event_type": correlated.get(
                     "file_event_type"
                 ),

@@ -18,6 +18,7 @@ from monitoring.event_correlator import EventCorrelator
 from setup.windows_audit_setup import ensure_windows_auditing
 from monitoring.security_monitor import SecurityMonitor
 from monitoring.event_pipeline import EventPipeline
+from monitoring.feature_aggregator import FeatureAggregator
 
 
 
@@ -38,7 +39,10 @@ from config.settings import (
     SYSMON_CONFIG_FILE,
     initialize_runtime_directories,
     validate_platform,
-    DECOY_FILE_COUNT
+    DECOY_FILE_COUNT,
+    FEATURE_OUTPUT_FILE,
+    FEATURE_WINDOW_SECONDS,
+    FEATURE_FLUSH_GRACE_SECONDS
 )
 
 from setup.sysmon_manager import SysmonManager
@@ -818,9 +822,30 @@ def start_monitoring(folders):
 
     monitor_threads = []
 
-    # Initialize the unified event pipeline.
+    # Load registered decoy paths for decoy-specific feature extraction.
+    decoy_metadata = load_decoy_metadata()
+    decoy_paths = [
+        record["path"]
+        for record in decoy_metadata.get("decoys", [])
+        if record.get("status") == "active" and record.get("path")
+    ]
+
+    feature_aggregator = FeatureAggregator(
+        inventory_path=INVENTORY_FILE,
+        decoy_paths=decoy_paths,
+        output_callback=write_feature_vector,
+        window_seconds=FEATURE_WINDOW_SECONDS,
+        flush_grace_seconds=FEATURE_FLUSH_GRACE_SECONDS
+    )
+    feature_aggregator.start()
+
+    # Normalize source events, then pass them into feature aggregation.
     pipeline = EventPipeline(
-        event_callback=handle_pipeline_event
+        event_callback=lambda event: handle_pipeline_event(
+            event,
+            feature_aggregator
+        ),
+        protected_folders=folders
     )
 
     print("\n======================================")
@@ -918,12 +943,30 @@ def start_monitoring(folders):
 
         sysmon_monitor.stop()
         security_monitor.stop()
+        feature_aggregator.stop()
 
         logger.info("Monitoring stopped by user.")
 
 
 
-def handle_pipeline_event(event):
+def write_feature_vector(feature_vector):
+    """Persist each completed ML input object as one JSONL record."""
+
+    serialized = json.dumps(feature_vector, ensure_ascii=False)
+
+    with open(FEATURE_OUTPUT_FILE, "a", encoding="utf-8") as file:
+        file.write(serialized + "\n")
+
+    logger.info("ML FEATURE VECTOR:\n%s", json.dumps(feature_vector, indent=2))
+    print("\n========== ML FEATURE VECTOR ==========")
+    print(json.dumps(feature_vector, indent=2))
+    print("=======================================\n")
+
+
+def handle_pipeline_event(event, feature_aggregator=None):
+
+    if feature_aggregator is not None:
+        feature_aggregator.consume(event)
 
     logger.info(
         "PIPELINE EVENT | Category: %s | Action: %s | File: %s",

@@ -43,6 +43,9 @@ DECOY_DIR = APP_DATA_DIR / "decoys"
 BACKUP_DIR = APP_DATA_DIR / "backups"
 
 INVENTORY_FILE = INVENTORY_DIR / "file_inventory.json"
+FEATURE_OUTPUT_FILE = LOG_DIR / "ml_feature_vectors.jsonl"
+FEATURE_WINDOW_SECONDS = 5
+FEATURE_FLUSH_GRACE_SECONDS = 6.0
 
 
 
