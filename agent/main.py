@@ -14,6 +14,7 @@ import threading
 from monitoring.windows_monitor import WindowsFileMonitor
 from monitoring.event_processor import EventProcessor
 from monitoring.sysmon_monitor import SysmonMonitor
+from monitoring.event_correlator import EventCorrelator
 
 
 from datetime import datetime, timezone
@@ -704,11 +705,26 @@ def folder_management_menu():
 # FILE MONITORING INTEGRATION
 # --------------------------------------------------
 
-def handle_file_event(raw_event, processor):
-    """
-    Receive raw filesystem events and pass them
-    through the event processor.
-    """
+
+
+def print_correlated_event(event):
+
+    print("\n========== CORRELATED FILE ACTIVITY ==========")
+
+    print(f"Event       : {event['file_event_type']}")
+    print(f"File        : {event['file_path']}")
+    print(f"Process     : {event['process_image'] or 'Unknown'}")
+    print(f"PID         : {event['process_id']}")
+    print(f"Process GUID: {event['process_guid']}")
+    print(f"Time Delta  : {event['time_difference_seconds']} seconds")
+
+    print("==============================================\n")
+
+
+
+
+
+def handle_file_event(raw_event, processor, correlator):
 
     processed_event = processor.process_event(raw_event)
 
@@ -726,21 +742,25 @@ def handle_file_event(raw_event, processor):
         f"{processed_event['file_path']}"
     )
 
+    # Try correlating this Windows event with Sysmon.
+    correlated = correlator.add_windows_event(
+        processed_event
+    )
+
+    if correlated:
+        print_correlated_event(correlated)
 
 
-def handle_sysmon_event(event):
-    """
-    Receive and log events collected by Sysmon.
-    Keep Sysmon events separate from filesystem events.
-    """
+def handle_sysmon_event(event, correlator):
 
     event_type = event["event_type"]
+
     process_id = event.get("process_id")
     process_image = event.get("process_image")
     file_path = event.get("file_path")
 
     logger.info(
-        "SYSMON EVENT | Type: %s | PID: %s | Process: %s | File: %s",
+        "SYSMON EVENT | %s | PID: %s | Process: %s | File: %s",
         event_type,
         process_id,
         process_image,
@@ -756,15 +776,22 @@ def handle_sysmon_event(event):
     if file_path:
         print(f"         File: {file_path}")
 
+    # Only compatible Sysmon file events will correlate.
+    correlated = correlator.add_sysmon_event(event)
+
+    if correlated:
+        print_correlated_event(correlated)
 
 
 def start_monitoring(folders):
-    """
-    Start Windows filesystem monitoring for each
-    protected folder and one independent Sysmon monitor.
-    """
 
     processor = EventProcessor()
+
+    correlator = EventCorrelator(
+        time_window_seconds=5,
+        pending_ttl_seconds=15,
+        max_pending_events=1000
+    )
 
     monitor_threads = []
 
@@ -781,8 +808,8 @@ def start_monitoring(folders):
         monitor = WindowsFileMonitor(
             directory=folder,
             recursive=True,
-            event_callback=lambda event, p=processor:
-                handle_file_event(event, p)
+            event_callback=lambda event, p=processor, c=correlator:
+                handle_file_event(event, p, c)
         )
 
         monitor_thread = threading.Thread(
@@ -804,7 +831,8 @@ def start_monitoring(folders):
     # ------------------------------------------
 
     sysmon_monitor = SysmonMonitor(
-        event_callback=handle_sysmon_event,
+        event_callback=lambda event, c=correlator:
+            handle_sysmon_event(event, c),
         protected_folders=folders
     )
 
@@ -826,10 +854,13 @@ def start_monitoring(folders):
     print(f"\nMonitoring {len(folders)} protected folder(s).")
     print("Windows file monitoring: ACTIVE")
     print("Sysmon monitoring: ACTIVE")
+    print("Event correlation: ACTIVE")
     print("Press CTRL+C to stop SNAP_BACK.\n")
 
     try:
+
         while True:
+
             for thread in monitor_threads:
                 thread.join(timeout=1)
 
@@ -840,8 +871,6 @@ def start_monitoring(folders):
         sysmon_monitor.stop()
 
         logger.info("Monitoring stopped by user.")
-
-
 
 
 # --------------------------------------------------
