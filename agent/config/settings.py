@@ -10,19 +10,53 @@ import os
 from pathlib import Path
 
 
+
+
+
+
 # --------------------------------------------------
 # 1. PROJECT PATHS
 # --------------------------------------------------
+
+
+
+PROGRAM_DATA = Path(
+    os.environ.get("PROGRAMDATA", r"C:\ProgramData")
+)
+
 
 # Root directory of the SNAP_BACK project
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 AGENT_DIR = PROJECT_ROOT / "agent"
 
+
+APP_DATA_DIR = PROGRAM_DATA / "SNAP_BACK"
+
+
+
 # Runtime directories
-BACKUP_DIR = PROJECT_ROOT / "backups"
-DECOY_DIR = PROJECT_ROOT / "decoy_test"
-LOG_DIR = Path.home() / "SNAP_BACK" / "logs"  # the logs are stored in vm only locally(for now) 
+CONFIG_DIR = APP_DATA_DIR / "config"
+LOG_DIR = APP_DATA_DIR / "logs"
+INVENTORY_DIR = APP_DATA_DIR / "inventory"
+DECOY_DIR = APP_DATA_DIR / "decoys"
+BACKUP_DIR = APP_DATA_DIR / "backups"
+
+INVENTORY_FILE = INVENTORY_DIR / "file_inventory.json"
+
+
+
+
+SYSMON_CONFIG_SOURCE = (
+    Path(__file__).resolve().parents[1]
+    / "setup"
+    / "sysmonconfig.xml"
+)
+
+SYSMON_CONFIG_FILE = CONFIG_DIR / "sysmonconfig.xml"
+
+
+
 
 # --------------------------------------------------
 # 2. MONITORING CONFIGURATION
@@ -98,6 +132,13 @@ APPLICATION_VERSION = "1.0.0"
 SUPPORTED_OS = "Windows"
 
 
+
+
+
+
+
+
+
 # --------------------------------------------------
 # 8. RUNTIME DIRECTORY INITIALIZATION
 # --------------------------------------------------
@@ -109,13 +150,17 @@ def initialize_runtime_directories():
     """
 
     directories = [
+        CONFIG_DIR,
         BACKUP_DIR,
         LOG_DIR,
-        DECOY_DIR
+        DECOY_DIR,
+        INVENTORY_DIR
     ]
 
     for directory in directories:
         directory.mkdir(parents=True, exist_ok=True)
+
+
 
 
 # --------------------------------------------------
