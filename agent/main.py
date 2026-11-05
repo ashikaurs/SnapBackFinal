@@ -17,6 +17,7 @@ from monitoring.sysmon_monitor import SysmonMonitor
 from monitoring.event_correlator import EventCorrelator
 from setup.windows_audit_setup import ensure_windows_auditing
 from monitoring.security_monitor import SecurityMonitor
+from monitoring.event_pipeline import EventPipeline
 
 
 
@@ -812,17 +813,15 @@ def handle_security_event(event):
         f"           Access: {event['access_types']}"
     )
 
+
 def start_monitoring(folders):
 
-    processor = EventProcessor()
-
-    correlator = EventCorrelator(
-        time_window_seconds=5,
-        pending_ttl_seconds=15,
-        max_pending_events=1000
-    )
-
     monitor_threads = []
+
+    # Initialize the unified event pipeline.
+    pipeline = EventPipeline(
+        event_callback=handle_pipeline_event
+    )
 
     print("\n======================================")
     print("       SNAP_BACK MONITORING")
@@ -837,8 +836,7 @@ def start_monitoring(folders):
         monitor = WindowsFileMonitor(
             directory=folder,
             recursive=True,
-            event_callback=lambda event, p=processor, c=correlator:
-                handle_file_event(event, p, c)
+            event_callback=pipeline.handle_windows_event
         )
 
         monitor_thread = threading.Thread(
@@ -860,8 +858,7 @@ def start_monitoring(folders):
     # ------------------------------------------
 
     sysmon_monitor = SysmonMonitor(
-        event_callback=lambda event, c=correlator:
-            handle_sysmon_event(event, c),
+        event_callback=pipeline.handle_sysmon_event,
         protected_folders=folders
     )
 
@@ -876,14 +873,12 @@ def start_monitoring(folders):
 
     logger.info("Sysmon monitoring thread started.")
 
-
-
-        # ------------------------------------------
+    # ------------------------------------------
     # 3. SECURITY MONITOR
     # ------------------------------------------
 
     security_monitor = SecurityMonitor(
-        event_callback=handle_security_event,
+        event_callback=pipeline.handle_security_event,
         protected_folders=folders,
         poll_interval=1
     )
@@ -899,18 +894,15 @@ def start_monitoring(folders):
 
     logger.info("Security monitoring thread started.")
 
-
-
-
     # ------------------------------------------
-    # 3. KEEP MONITORING ACTIVE
+    # 4. KEEP MONITORING ACTIVE
     # ------------------------------------------
 
     print(f"\nMonitoring {len(folders)} protected folder(s).")
     print("Windows file monitoring: ACTIVE")
     print("Sysmon monitoring: ACTIVE")
     print("Security auditing: ACTIVE")
-    print("Event correlation: ACTIVE")
+    print("Unified event pipeline: ACTIVE")
     print("Press CTRL+C to stop SNAP_BACK.\n")
 
     try:
@@ -928,6 +920,40 @@ def start_monitoring(folders):
         security_monitor.stop()
 
         logger.info("Monitoring stopped by user.")
+
+
+
+def handle_pipeline_event(event):
+
+    logger.info(
+        "PIPELINE EVENT | Category: %s | Action: %s | File: %s",
+        event.get("event_category"),
+        event.get("action"),
+        event.get("file", {}).get("path")
+    )
+
+    print(
+        f"[PIPELINE] {event.get('event_category')} | "
+        f"{event.get('action')}"
+    )
+
+    file_path = event.get("file", {}).get("path")
+
+    if file_path:
+        print(f"           File: {file_path}")
+
+    process = event.get("process", {})
+
+    if process.get("pid"):
+        print(
+            f"           Process: {process.get('image') or 'Unknown'} | "
+            f"PID: {process.get('pid')}"
+        )
+
+    access_types = event.get("access", {}).get("types", [])
+
+    if access_types:
+        print(f"           Access: {access_types}")
 
 
 # --------------------------------------------------
