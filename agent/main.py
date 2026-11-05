@@ -15,7 +15,7 @@ from monitoring.windows_monitor import WindowsFileMonitor
 from monitoring.event_processor import EventProcessor
 from monitoring.sysmon_monitor import SysmonMonitor
 from monitoring.event_correlator import EventCorrelator
-
+from setup.windows_audit_setup import ensure_windows_auditing
 
 from datetime import datetime, timezone
 from pathlib import Path
